@@ -3,6 +3,7 @@ package redis_rate
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -121,10 +122,23 @@ type pipelineResult struct {
 	cmd   *redis.Cmd
 }
 
+var ErrAllowMultiScriptFailed = errors.New("redis_rate: invalid result from SCRIPT EXISTS in allow multi")
+var ErrAllowMultiTooManyRetries = errors.New("redis_rate: allow multi too many retries to load scripts")
+
 func (l *Limiter) AllowMulti(ctx context.Context, limits map[string]Limit) ([]*Result, error) {
+	return l.allowMulti(ctx, limits, 0)
+}
+
+func (l *Limiter) allowMulti(ctx context.Context, limits map[string]Limit, depth int) ([]*Result, error) {
+	if depth > 10 {
+		return nil, ErrAllowMultiTooManyRetries
+	}
+
+	var existsCmd *redis.BoolSliceCmd
 	results := make([]*pipelineResult, 0, len(limits))
 	buf := bytes.Buffer{}
 	_, err := l.rdb.Pipelined(ctx, func(pipe redis.Pipeliner) error {
+		existsCmd = allowN.Exists(ctx, pipe)
 		for key, limit := range limits {
 			values := []interface{}{limit.Burst, limit.Rate, limit.Period.Seconds(), int(1)}
 
@@ -147,6 +161,22 @@ func (l *Limiter) AllowMulti(ctx context.Context, limits map[string]Limit) ([]*R
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	exists, err := existsCmd.Result()
+	if err != nil {
+		return nil, err
+	}
+	if len(exists) != 1 {
+		return nil, ErrAllowMultiScriptFailed
+	}
+
+	if !exists[0] {
+		err = l.LoadScripts(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return l.allowMulti(ctx, limits, depth+1)
 	}
 
 	rv := make([]*Result, 0, len(results))
