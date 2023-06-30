@@ -14,6 +14,7 @@ import (
 const defaultRedisPrefix = "rate:"
 
 type RedisClientConn interface {
+	Pipeline() redis.Pipeliner
 	Pipelined(ctx context.Context, fn func(redis.Pipeliner) error) ([]redis.Cmder, error)
 
 	Eval(ctx context.Context, script string, keys []string, args ...interface{}) *redis.Cmd

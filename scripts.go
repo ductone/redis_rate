@@ -15,6 +15,11 @@ var alloNScript string
 //go:embed script_allow_at_most.lua
 var allowAtMostScript string
 
+//go:embed script_concurrency_take.lua
+var concurrencyTakeScript string
+
 var allowN = redis.NewScript(alloNScript)
 
 var allowAtMost = redis.NewScript(allowAtMostScript)
+
+var concurrencyTake = redis.NewScript(concurrencyTakeScript)
