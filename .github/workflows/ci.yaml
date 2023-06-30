@@ -38,11 +38,6 @@ jobs:
           go-version: ${{ matrix.go-version }}
       - name: Checkout code
         uses: actions/checkout@v3
-      - name: go tests
-        run: go test -v  ./...
-        env:
-          TEST_REDIS_HOST: localhost
-          TEST_REDIS_PORT: 6379
       - name: go tests [cover]
         run: go test -v -covermode=count -json ./... > test.json
         env:
