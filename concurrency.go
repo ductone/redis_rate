@@ -38,26 +38,7 @@ type ConcurrencyResult struct {
 	RetryAfter time.Duration
 }
 
-const (
-	concurrencyKeyPrefix = "concurrency:"
-)
-
-func NewTaker(rdb RedisClientConn, prefix string) *Taker {
-	if prefix == "" {
-		prefix = concurrencyKeyPrefix
-	}
-	return &Taker{
-		rdb:    rdb,
-		prefix: prefix,
-	}
-}
-
-type Taker struct {
-	rdb    RedisClientConn
-	prefix string
-}
-
-func (tk *Taker) Take(ctx context.Context, key string, requestID string, limit ConcurrencyLimit) (ConcurrencyResult, error) {
+func (tk *Limiter) Take(ctx context.Context, key string, requestID string, limit ConcurrencyLimit) (ConcurrencyResult, error) {
 	rv, err := tk.takeMulti(ctx, requestID, map[string]ConcurrencyLimit{key: limit}, 0)
 	if err != nil {
 		return ConcurrencyResult{}, err
@@ -65,7 +46,7 @@ func (tk *Taker) Take(ctx context.Context, key string, requestID string, limit C
 	return rv[key], nil
 }
 
-func (tk *Taker) Release(ctx context.Context, key string, requestID string, limit ConcurrencyLimit) error {
+func (tk *Limiter) Release(ctx context.Context, key string, requestID string, limit ConcurrencyLimit) error {
 	err := tk.releaseMulti(ctx, requestID, map[string]ConcurrencyLimit{key: limit})
 	if err != nil {
 		return err
@@ -73,14 +54,14 @@ func (tk *Taker) Release(ctx context.Context, key string, requestID string, limi
 	return nil
 }
 
-func (tk *Taker) releaseMulti(ctx context.Context, requestID string, limits map[string]ConcurrencyLimit) error {
+func (tk *Limiter) releaseMulti(ctx context.Context, requestID string, limits map[string]ConcurrencyLimit) error {
 	pl := tk.rdb.Pipeline()
 
 	// Release any concurrency limits.
 	buf := bytes.Buffer{}
 	for key := range limits {
 		buf.Reset()
-		_, _ = buf.WriteString(tk.prefix)
+		_, _ = buf.WriteString(tk.concurrentPrefix)
 		_, _ = buf.WriteString(key)
 		pl.HDel(ctx, buf.String(), requestID)
 	}
@@ -102,15 +83,7 @@ type takeResult struct {
 	cmd   *redis.Cmd
 }
 
-func (tk *Taker) LoadScripts(ctx context.Context) error {
-	_, err := concurrencyTake.Load(ctx, tk.rdb).Result()
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (tk *Taker) takeMulti(ctx context.Context, requestID string, limits map[string]ConcurrencyLimit, depth int) (map[string]ConcurrencyResult, error) {
+func (tk *Limiter) takeMulti(ctx context.Context, requestID string, limits map[string]ConcurrencyLimit, depth int) (map[string]ConcurrencyResult, error) {
 	if depth > 10 {
 		return nil, ErrAllowMultiTooManyRetries
 	}
@@ -127,7 +100,7 @@ func (tk *Taker) takeMulti(ctx context.Context, requestID string, limits map[str
 		values := []interface{}{requestID, limit.Max, reqPeriod}
 
 		buf.Reset()
-		_, _ = buf.WriteString(concurrencyKeyPrefix)
+		_, _ = buf.WriteString(defaultConcurrencyKeyPrefix)
 		_, _ = buf.WriteString(key)
 
 		results = append(results, &takeResult{

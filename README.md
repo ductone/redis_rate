@@ -13,6 +13,7 @@ feature.
 ## Fork Features
 
 - _Allow Multi_: Check if you can allow multiple requests at once in a single Redis pipelined call.
+- _Concurrency Limits_: Limit the number of concurrent requests.
 - General cleanup for modern Go.
 
 ## Example
@@ -35,7 +36,7 @@ func ExampleNewLimiter() {
 	})
 	_ = rdb.FlushDB(ctx).Err()
 
-	limiter := redis_rate.NewLimiter(rdb)
+	limiter := redis_rate.New(rdb)
 	res, err := limiter.Allow(ctx, "project:123", redis_rate.PerSecond(10))
 	if err != nil {
 		panic(err)

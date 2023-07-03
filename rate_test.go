@@ -28,7 +28,7 @@ func rateLimiter(t require.TestingT) *redis_rate.Limiter {
 	if err := ring.FlushDB(context.TODO()).Err(); err != nil {
 		require.NoError(t, err)
 	}
-	ll := redis_rate.NewLimiter(ring, "")
+	ll := redis_rate.New(ring)
 	if err := ll.LoadScripts(context.Background()); err != nil {
 		require.NoError(t, err)
 	}

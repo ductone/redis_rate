@@ -11,24 +11,6 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const defaultRedisPrefix = "rate:"
-
-type RedisClientConn interface {
-	Pipeline() redis.Pipeliner
-	Pipelined(ctx context.Context, fn func(redis.Pipeliner) error) ([]redis.Cmder, error)
-
-	Eval(ctx context.Context, script string, keys []string, args ...interface{}) *redis.Cmd
-	EvalSha(ctx context.Context, sha1 string, keys []string, args ...interface{}) *redis.Cmd
-	ScriptExists(ctx context.Context, hashes ...string) *redis.BoolSliceCmd
-	ScriptLoad(ctx context.Context, script string) *redis.StringCmd
-	Del(ctx context.Context, keys ...string) *redis.IntCmd
-
-	EvalRO(ctx context.Context, script string, keys []string, args ...interface{}) *redis.Cmd
-	EvalShaRO(ctx context.Context, sha1 string, keys []string, args ...interface{}) *redis.Cmd
-
-	// redis.Cmdable // can uncomment when testing using new interface methods
-}
-
 type Limit struct {
 	Rate   int
 	Burst  int
@@ -84,33 +66,9 @@ func PerHour(rate int) Limit {
 
 // Limiter controls how frequently events are allowed to happen.
 type Limiter struct {
-	rdb    RedisClientConn
-	prefix string
-}
-
-// NewLimiter returns a new Limiter.
-func NewLimiter(rdb RedisClientConn, prefix string) *Limiter {
-	if prefix == "" {
-		prefix = defaultRedisPrefix
-	}
-	return &Limiter{
-		rdb:    rdb,
-		prefix: prefix,
-	}
-}
-
-func (l *Limiter) LoadScripts(ctx context.Context) error {
-	_, err := allowN.Load(ctx, l.rdb).Result()
-	if err != nil {
-		return err
-	}
-
-	_, err = allowAtMost.Load(ctx, l.rdb).Result()
-	if err != nil {
-		return err
-	}
-
-	return nil
+	rdb              RedisClientConn
+	ratePrefix       string
+	concurrentPrefix string
 }
 
 // Allow is a shortcut for AllowN(ctx, key, limit, 1).
@@ -145,7 +103,7 @@ func (l *Limiter) allowMulti(ctx context.Context, limits map[string]Limit, depth
 			values := []interface{}{limit.Burst, limit.Rate, limit.Period.Seconds(), int(1)}
 
 			buf.Reset()
-			_, _ = buf.WriteString(l.prefix)
+			_, _ = buf.WriteString(l.ratePrefix)
 			_, _ = buf.WriteString(key)
 
 			results = append(results, &pipelineResult{
@@ -229,7 +187,7 @@ func (l *Limiter) AllowN(
 	n int,
 ) (*Result, error) {
 	values := []interface{}{limit.Burst, limit.Rate, limit.Period.Seconds(), n}
-	v, err := allowN.Run(ctx, l.rdb, []string{l.prefix + key}, values...).Result()
+	v, err := allowN.Run(ctx, l.rdb, []string{l.ratePrefix + key}, values...).Result()
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +206,7 @@ func (l *Limiter) AllowAtMost(
 	n int,
 ) (*Result, error) {
 	values := []interface{}{limit.Burst, limit.Rate, limit.Period.Seconds(), n}
-	v, err := allowAtMost.Run(ctx, l.rdb, []string{l.prefix + key}, values...).Result()
+	v, err := allowAtMost.Run(ctx, l.rdb, []string{l.ratePrefix + key}, values...).Result()
 	if err != nil {
 		return nil, err
 	}
@@ -260,7 +218,7 @@ func (l *Limiter) AllowAtMost(
 
 // Reset gets a key and reset all limitations and previous usages.
 func (l *Limiter) Reset(ctx context.Context, key string) error {
-	return l.rdb.Del(ctx, l.prefix+key).Err()
+	return l.rdb.Del(ctx, l.ratePrefix+key).Err()
 }
 
 func dur(f float64) time.Duration {

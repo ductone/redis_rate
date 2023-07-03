@@ -17,7 +17,7 @@ local hmcountandfilter = function (key)
 		    if tonumber(v) < now then
                 redis.call("HDEL", rate_limit_key, nextkey)
             else
-                count++
+                count = count + 1
 		    end
 		end
 	end
