@@ -146,6 +146,7 @@ func (tk *Limiter) takeMulti(ctx context.Context, requestID string, limits map[s
 		ok := values[0].(int64) == 1
 		current := values[1].(int64)
 		cr := ConcurrencyResult{
+			Key:       result.key,
 			Allowed:   ok,
 			Limit:     result.limit,
 			Used:      current,
