@@ -9,8 +9,9 @@ import (
 )
 
 type ConcurrencyLimit struct {
-	Max           int64
-	RequestPeriod int16
+	Max int64
+	// RequestMaxDuration is the time period in seconds over which the a request must complete.  If unset it defaults to 30 seconds.
+	RequestMaxDuration time.Duration
 }
 
 type ConcurrencyResult struct {
@@ -32,10 +33,6 @@ type ConcurrencyResult struct {
 	// second and has already received 6 requests for this key this
 	// second, Remaining would be 4.
 	Remaining int64
-
-	// RetryAfter is the time until the next request will be permitted.
-	// It should be -1 unless the rate limit has been exceeded.
-	RetryAfter time.Duration
 }
 
 func (tk *Limiter) Take(ctx context.Context, key string, requestID string, limit ConcurrencyLimit) (ConcurrencyResult, error) {
@@ -93,8 +90,8 @@ func (tk *Limiter) takeMulti(ctx context.Context, requestID string, limits map[s
 	pl := tk.rdb.Pipeline()
 	existsCmd := concurrencyTake.Exists(ctx, pl)
 	for key, limit := range limits {
-		reqPeriod := limit.RequestPeriod
-		if reqPeriod == 0 {
+		reqPeriod := limit.RequestMaxDuration.Round(time.Second) / time.Second
+		if reqPeriod <= 0 {
 			reqPeriod = 60
 		}
 		values := []interface{}{requestID, limit.Max, reqPeriod}
@@ -146,17 +143,13 @@ func (tk *Limiter) takeMulti(ctx context.Context, requestID string, limits map[s
 		}
 		values := v.([]interface{})
 
-		ok := values[0].(bool)
+		ok := values[0].(int64) == 1
 		current := values[1].(int64)
 		cr := ConcurrencyResult{
 			Allowed:   ok,
 			Limit:     result.limit,
 			Used:      current,
 			Remaining: result.limit.Max - current,
-		}
-		if !ok {
-			//	TODO: implement retry after
-			cr.RetryAfter = time.Duration(1) * time.Second
 		}
 		rv[result.key] = cr
 	}
