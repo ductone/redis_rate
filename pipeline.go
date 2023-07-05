@@ -58,8 +58,9 @@ func (p *pipeline) Take(ctx context.Context,
 	key string, requestID string,
 	limit ConcurrencyLimit) *ConcurrencyResult {
 	rv := &ConcurrencyResult{
-		Key:   key,
-		Limit: limit,
+		Key:       key,
+		Limit:     limit,
+		RequestID: requestID,
 	}
 	p.takeCommands = append(p.takeCommands, rv)
 	return rv
