@@ -12,7 +12,8 @@ feature.
 
 ## Fork Features
 
-- _Allow Multi_: Check if you can allow multiple requests at once in a single Redis pipelined call.
+- _Pipeling_: Check if you can allow multiple limits or concurrency checks all at once in a single
+  Redis pipelined call.
 - _Concurrency Limits_: Limit the number of concurrent requests.
 - General cleanup for modern Go.
 
