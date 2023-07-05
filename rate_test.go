@@ -145,7 +145,11 @@ func TestAllowMulti(t *testing.T) {
 		"ip:123.123.123.200/hour":              redis_rate.PerHour(1e6),
 	}
 
-	_, err := l.AllowMulti(ctx, limits)
+	p := l.Pipeline()
+	for k, v := range limits {
+		_ = p.Allow(ctx, k, v)
+	}
+	err := p.Exec(ctx)
 	require.Nil(t, err)
 }
 
@@ -288,8 +292,13 @@ func BenchmarkAllowMulti(b *testing.B) {
 	b.ResetTimer()
 
 	b.RunParallel(func(pb *testing.PB) {
+		res := make(map[string]*redis_rate.Result, len(limits))
 		for pb.Next() {
-			res, err := l.AllowMulti(ctx, limits)
+			p := l.Pipeline()
+			for k, v := range limits {
+				res[k] = p.Allow(ctx, k, v)
+			}
+			err := p.Exec(ctx)
 			if err != nil {
 				b.Fatal(err)
 			}

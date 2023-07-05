@@ -18,6 +18,9 @@ type ConcurrencyResult struct {
 	// Name of the key used for this result.
 	Key string
 
+	// Request ID used for this result.
+	RequestID string
+
 	// Limit is the limit that was used to obtain this result.
 	Limit ConcurrencyLimit
 
@@ -43,12 +46,51 @@ func (tk *Limiter) Take(ctx context.Context, key string, requestID string, limit
 	return rv[key], nil
 }
 
+func (p *pipeline) takePipe(ctx context.Context, pipe redis.Pipeliner, rv *ConcurrencyResult) func() error {
+	p.buf.Reset()
+	_, _ = p.buf.WriteString(p.l.concurrentPrefix)
+	_, _ = p.buf.WriteString(rv.Key)
+
+	reqPeriod := rv.Limit.RequestMaxDuration.Round(time.Second) / time.Second
+	if reqPeriod <= 0 {
+		reqPeriod = 60
+	}
+
+	values := []interface{}{rv.RequestID, rv.Limit.Max, reqPeriod}
+
+	eval := concurrencyTake.EvalSha(ctx, pipe, []string{p.buf.String()}, values...)
+	return func() error {
+		v, err := eval.Result()
+		if err != nil {
+			return err
+		}
+		values := v.([]interface{})
+
+		ok := values[0].(int64) == 1
+		current := values[1].(int64)
+		rv.Allowed = ok
+		rv.Used = current
+		rv.Remaining = rv.Limit.Max - current
+		return nil
+	}
+}
+
 func (tk *Limiter) Release(ctx context.Context, key string, requestID string, limit ConcurrencyLimit) error {
 	err := tk.releaseMulti(ctx, requestID, map[string]ConcurrencyLimit{key: limit})
 	if err != nil {
 		return err
 	}
 	return nil
+}
+
+func (tk *Limiter) releasePipe(ctx context.Context, pipe redis.Pipeliner, items []pair[string, string]) {
+	buf := bytes.Buffer{}
+	for _, v := range items {
+		buf.Reset()
+		_, _ = buf.WriteString(tk.concurrentPrefix)
+		_, _ = buf.WriteString(v.A)
+		pipe.HDel(ctx, buf.String(), v.B)
+	}
 }
 
 func (tk *Limiter) releaseMulti(ctx context.Context, requestID string, limits map[string]ConcurrencyLimit) error {
@@ -82,7 +124,7 @@ type takeResult struct {
 
 func (tk *Limiter) takeMulti(ctx context.Context, requestID string, limits map[string]ConcurrencyLimit, depth int) (map[string]ConcurrencyResult, error) {
 	if depth > 10 {
-		return nil, ErrAllowMultiTooManyRetries
+		return nil, ErrTooManyRetries
 	}
 
 	results := make([]*takeResult, 0, len(limits))
@@ -97,7 +139,7 @@ func (tk *Limiter) takeMulti(ctx context.Context, requestID string, limits map[s
 		values := []interface{}{requestID, limit.Max, reqPeriod}
 
 		buf.Reset()
-		_, _ = buf.WriteString(defaultConcurrencyKeyPrefix)
+		_, _ = buf.WriteString(tk.concurrentPrefix)
 		_, _ = buf.WriteString(key)
 
 		results = append(results, &takeResult{
@@ -124,7 +166,7 @@ func (tk *Limiter) takeMulti(ctx context.Context, requestID string, limits map[s
 		return nil, err
 	}
 	if len(exists) != 1 {
-		return nil, ErrAllowMultiScriptFailed
+		return nil, ErrScriptFailed
 	}
 
 	if !exists[0] {

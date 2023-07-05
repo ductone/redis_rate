@@ -1,9 +1,7 @@
 package redis_rate //nolint:revive // upstream used this name
 
 import (
-	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -76,107 +74,50 @@ func (l *Limiter) Allow(ctx context.Context, key string, limit Limit) (*Result, 
 	return l.AllowN(ctx, key, limit, 1)
 }
 
-type pipelineResult struct {
-	key   string
-	limit Limit
-	cmd   *redis.Cmd
-}
+func (p *pipeline) allowPipe(ctx context.Context, pipe redis.Pipeliner, rv *Result) func() error {
+	values := []interface{}{rv.Limit.Burst, rv.Limit.Rate, rv.Limit.Period.Seconds(), int(1)}
+	p.buf.Reset()
+	_, _ = p.buf.WriteString(p.l.ratePrefix)
+	_, _ = p.buf.WriteString(rv.Key)
 
-var ErrAllowMultiScriptFailed = errors.New("redis_rate: invalid result from SCRIPT EXISTS in allow multi")
-var ErrAllowMultiTooManyRetries = errors.New("redis_rate: allow multi too many retries to load scripts")
+	eval := allowN.EvalSha(
+		ctx,
+		pipe,
+		[]string{p.buf.String()},
+		values...,
+	)
 
-func (l *Limiter) AllowMulti(ctx context.Context, limits map[string]Limit) ([]*Result, error) {
-	return l.allowMulti(ctx, limits, 0)
-}
-
-func (l *Limiter) allowMulti(ctx context.Context, limits map[string]Limit, depth int) ([]*Result, error) {
-	if depth > 10 {
-		return nil, ErrAllowMultiTooManyRetries
-	}
-
-	var existsCmd *redis.BoolSliceCmd
-	results := make([]*pipelineResult, 0, len(limits))
-	buf := bytes.Buffer{}
-	_, err := l.rdb.Pipelined(ctx, func(pipe redis.Pipeliner) error {
-		existsCmd = allowN.Exists(ctx, pipe)
-		for key, limit := range limits {
-			values := []interface{}{limit.Burst, limit.Rate, limit.Period.Seconds(), int(1)}
-
-			buf.Reset()
-			_, _ = buf.WriteString(l.ratePrefix)
-			_, _ = buf.WriteString(key)
-
-			results = append(results, &pipelineResult{
-				key:   key,
-				limit: limit,
-				cmd: allowN.EvalSha(
-					ctx,
-					pipe,
-					[]string{buf.String()},
-					values...,
-				),
-			})
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	exists, err := existsCmd.Result()
-	if err != nil {
-		return nil, err
-	}
-	if len(exists) != 1 {
-		return nil, ErrAllowMultiScriptFailed
-	}
-
-	if !exists[0] {
-		err = l.LoadScripts(ctx)
+	return func() error {
+		v, err := eval.Result()
 		if err != nil {
-			return nil, err
-		}
-		return l.allowMulti(ctx, limits, depth+1)
-	}
-
-	rv := make([]*Result, 0, len(results))
-	for _, result := range results {
-		v, err := result.cmd.Result()
-		if err != nil {
-			return nil, err
+			return err
 		}
 		values := v.([]interface{})
-		rr, err := parseScriptResult(result.key, result.limit, values)
+		err = rv.parseScriptResult(values)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		rv = append(rv, rr)
+		return nil
 	}
-
-	return rv, nil
 }
 
-func parseScriptResult(key string, limit Limit, values []interface{}) (*Result, error) {
+func (rv *Result) parseScriptResult(values []interface{}) error {
 	retryAfter, err := strconv.ParseFloat(values[2].(string), 64)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	resetAfter, err := strconv.ParseFloat(values[3].(string), 64)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	res := &Result{
-		Key:        key,
-		Limit:      limit,
-		Allowed:    values[0].(int64),
-		Remaining:  values[1].(int64),
-		Used:       0,
-		RetryAfter: dur(retryAfter),
-		ResetAfter: dur(resetAfter),
-	}
-	return res, nil
+	rv.Allowed = values[0].(int64)
+	rv.Remaining = values[1].(int64)
+	rv.Used = 0
+	rv.RetryAfter = dur(retryAfter)
+	rv.ResetAfter = dur(resetAfter)
+	return nil
 }
 
 // AllowN reports whether n events may happen at time now.
@@ -194,7 +135,15 @@ func (l *Limiter) AllowN(
 
 	values = v.([]interface{})
 
-	return parseScriptResult(key, limit, values)
+	rv := &Result{
+		Key:   key,
+		Limit: limit,
+	}
+	err = rv.parseScriptResult(values)
+	if err != nil {
+		return nil, err
+	}
+	return rv, nil
 }
 
 // AllowAtMost reports whether at most n events may happen at time now.
@@ -213,7 +162,15 @@ func (l *Limiter) AllowAtMost(
 
 	values = v.([]interface{})
 
-	return parseScriptResult(key, limit, values)
+	rv := &Result{
+		Key:   key,
+		Limit: limit,
+	}
+	err = rv.parseScriptResult(values)
+	if err != nil {
+		return nil, err
+	}
+	return rv, nil
 }
 
 // Reset gets a key and reset all limitations and previous usages.
