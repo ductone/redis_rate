@@ -104,7 +104,7 @@ func (p *pipeline) exec(ctx context.Context, depth int) error {
 	}
 
 	_, err := pipe.Exec(ctx)
-	if err != nil {
+	if err != nil && !redis.HasErrorPrefix(err, "NOSCRIPT") {
 		return err
 	}
 

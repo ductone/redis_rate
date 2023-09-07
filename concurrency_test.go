@@ -10,7 +10,7 @@ import (
 )
 
 func TestTake(t *testing.T) {
-	l := newTestLimiter(t)
+	l := newTestLimiter(t, true)
 	ctx := context.Background()
 
 	r1, err := l.Take(ctx, "test_id", "req1", redis_rate.ConcurrencyLimit{

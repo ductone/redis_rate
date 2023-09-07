@@ -13,7 +13,7 @@ import (
 	"github.com/ductone/redis_rate/v11"
 )
 
-func newTestLimiter(t require.TestingT) *redis_rate.Limiter {
+func newTestLimiter(t require.TestingT, loadScripts bool) *redis_rate.Limiter {
 	redisHost := os.Getenv("TEST_REDIS_HOST")
 	redisPort := os.Getenv("TEST_REDIS_PORT")
 	if redisHost == "" {
@@ -28,17 +28,25 @@ func newTestLimiter(t require.TestingT) *redis_rate.Limiter {
 	if err := ring.FlushDB(context.TODO()).Err(); err != nil {
 		require.NoError(t, err)
 	}
-	ll := redis_rate.New(ring)
-	if err := ll.LoadScripts(context.Background()); err != nil {
+	if err := ring.ScriptFlush(context.TODO()).Err(); err != nil {
 		require.NoError(t, err)
 	}
+
+	ll := redis_rate.New(ring)
+
+	if loadScripts {
+		if err := ll.LoadScripts(context.Background()); err != nil {
+			require.NoError(t, err)
+		}
+	}
+
 	return ll
 }
 
 func TestAllow(t *testing.T) {
 	ctx := context.Background()
 
-	l := newTestLimiter(t)
+	l := newTestLimiter(t, true)
 
 	limit := redis_rate.PerSecond(10)
 	require.Equal(t, limit.String(), "10 req/s (burst 10)")
@@ -84,7 +92,7 @@ func TestAllow(t *testing.T) {
 
 func TestAllowN_IncrementZero(t *testing.T) {
 	ctx := context.Background()
-	l := newTestLimiter(t)
+	l := newTestLimiter(t, true)
 	limit := redis_rate.PerSecond(10)
 
 	// Check for a row that's not there
@@ -120,7 +128,7 @@ func TestRetryAfter(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	l := newTestLimiter(t)
+	l := newTestLimiter(t, true)
 
 	for i := 0; i < 1000; i++ {
 		res, err := l.Allow(ctx, "test_id", limit)
@@ -137,7 +145,7 @@ func TestRetryAfter(t *testing.T) {
 func TestAllowMulti(t *testing.T) {
 	ctx := context.Background()
 
-	l := newTestLimiter(t)
+	l := newTestLimiter(t, false)
 	limits := map[string]redis_rate.Limit{
 		"foo":                                  redis_rate.PerSecond(1e6),
 		"tenant:exmaple.company.tenant/second": redis_rate.PerSecond(1e6),
@@ -156,7 +164,7 @@ func TestAllowMulti(t *testing.T) {
 func TestAllowAtMost(t *testing.T) {
 	ctx := context.Background()
 
-	l := newTestLimiter(t)
+	l := newTestLimiter(t, true)
 	limit := redis_rate.PerSecond(10)
 
 	res, err := l.Allow(ctx, "test_id", limit)
@@ -211,7 +219,7 @@ func TestAllowAtMost(t *testing.T) {
 
 func TestAllowAtMost_IncrementZero(t *testing.T) {
 	ctx := context.Background()
-	l := newTestLimiter(t)
+	l := newTestLimiter(t, true)
 	limit := redis_rate.PerSecond(10)
 
 	// Check for a row that isn't there
@@ -241,7 +249,7 @@ func TestAllowAtMost_IncrementZero(t *testing.T) {
 
 func BenchmarkAllow(b *testing.B) {
 	ctx := context.Background()
-	l := newTestLimiter(b)
+	l := newTestLimiter(b, true)
 	limit := redis_rate.PerSecond(1e6)
 
 	b.ResetTimer()
@@ -261,7 +269,7 @@ func BenchmarkAllow(b *testing.B) {
 
 func BenchmarkAllowAtMost(b *testing.B) {
 	ctx := context.Background()
-	l := newTestLimiter(b)
+	l := newTestLimiter(b, true)
 	limit := redis_rate.PerSecond(1e6)
 
 	b.ResetTimer()
@@ -281,7 +289,7 @@ func BenchmarkAllowAtMost(b *testing.B) {
 
 func BenchmarkAllowMulti(b *testing.B) {
 	ctx := context.Background()
-	l := newTestLimiter(b)
+	l := newTestLimiter(b, true)
 	limits := map[string]redis_rate.Limit{
 		"foo":                                  redis_rate.PerSecond(1e6),
 		"tenant:exmaple.company.tenant/second": redis_rate.PerSecond(1e6),
