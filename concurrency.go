@@ -159,12 +159,6 @@ type takeResult struct {
 	cmd   *redis.Cmd
 }
 
-type heartbeatResult struct {
-	key   string
-	limit ConcurrencyLimit
-	cmd   *redis.Cmd
-}
-
 func (tk *Limiter) takeMulti(ctx context.Context, requestID string, limits map[string]ConcurrencyLimit, depth int) (map[string]ConcurrencyResult, error) {
 	if depth > 10 {
 		return nil, ErrTooManyRetries
@@ -242,6 +236,12 @@ func (tk *Limiter) takeMulti(ctx context.Context, requestID string, limits map[s
 	}
 
 	return rv, nil
+}
+
+type heartbeatResult struct {
+	key   string
+	limit ConcurrencyLimit
+	cmd   *redis.Cmd
 }
 
 func (tk *Limiter) heartbeatMulti(ctx context.Context, requestID string, limits map[string]ConcurrencyLimit, depth int) (map[string]ConcurrencyResult, error) {
