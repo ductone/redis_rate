@@ -47,6 +47,11 @@ func (l *Limiter) LoadScripts(ctx context.Context) error {
 		return fmt.Errorf("redis_rate: failed to load 'script_concurrency_take.lua': %w", err)
 	}
 
+	_, err = concurrencyHeartbeat.Load(ctx, l.rdb).Result()
+	if err != nil {
+		return fmt.Errorf("redis_rate: failed to load 'script_concurrency_heartbeat.lua': %w", err)
+	}
+
 	_, err = allowN.Load(ctx, l.rdb).Result()
 	if err != nil {
 		return fmt.Errorf("redis_rate: failed to load 'script_allow_n.lua': %w", err)

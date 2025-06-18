@@ -18,8 +18,13 @@ var allowAtMostScript string
 //go:embed script_concurrency_take.lua
 var concurrencyTakeScript string
 
+//go:embed script_concurrency_heartbeat.lua
+var concurrencyHeartbeatScript string
+
 var allowN = redis.NewScript(alloNScript)
 
 var allowAtMost = redis.NewScript(allowAtMostScript)
 
 var concurrencyTake = redis.NewScript(concurrencyTakeScript)
+
+var concurrencyHeartbeat = redis.NewScript(concurrencyHeartbeatScript)

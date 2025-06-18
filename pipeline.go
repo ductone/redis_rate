@@ -19,6 +19,8 @@ type Pipeline interface {
 
 	Take(ctx context.Context, key string, requestID string, limit ConcurrencyLimit) *ConcurrencyResult
 
+	Heartbeat(ctx context.Context, key string, requestID string, limit ConcurrencyLimit) *ConcurrencyResult
+
 	Release(ctx context.Context, key string, requestID string)
 
 	Exec(ctx context.Context) error
@@ -36,11 +38,12 @@ type pair[TA any, TB any] struct {
 }
 
 type pipeline struct {
-	l               *Limiter
-	buf             bytes.Buffer
-	releaseCommands []pair[string, string]
-	allowCommands   []*Result
-	takeCommands    []*ConcurrencyResult
+	l                 *Limiter
+	buf               bytes.Buffer
+	releaseCommands   []pair[string, string]
+	allowCommands     []*Result
+	takeCommands      []*ConcurrencyResult
+	heartbeatCommands []*ConcurrencyResult
 }
 
 func (p *pipeline) Allow(ctx context.Context,
@@ -63,6 +66,18 @@ func (p *pipeline) Take(ctx context.Context,
 		RequestID: requestID,
 	}
 	p.takeCommands = append(p.takeCommands, rv)
+	return rv
+}
+
+func (p *pipeline) Heartbeat(ctx context.Context,
+	key string, requestID string,
+	limit ConcurrencyLimit) *ConcurrencyResult {
+	rv := &ConcurrencyResult{
+		Key:       key,
+		Limit:     limit,
+		RequestID: requestID,
+	}
+	p.heartbeatCommands = append(p.heartbeatCommands, rv)
 	return rv
 }
 
@@ -96,6 +111,13 @@ func (p *pipeline) exec(ctx context.Context, depth int) error {
 		scriptExistChecks = append(scriptExistChecks, concurrencyTake.Exists(ctx, pipe))
 		for _, v := range p.takeCommands {
 			finishFuncs = append(finishFuncs, p.takePipe(ctx, pipe, v))
+		}
+	}
+
+	if len(p.heartbeatCommands) > 0 {
+		scriptExistChecks = append(scriptExistChecks, concurrencyHeartbeat.Exists(ctx, pipe))
+		for _, v := range p.heartbeatCommands {
+			finishFuncs = append(finishFuncs, p.heartbeatPipe(ctx, pipe, v))
 		}
 	}
 
