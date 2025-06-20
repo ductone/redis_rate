@@ -47,8 +47,6 @@ linters-settings:
       - name: var-naming
         arguments: [['ID', 'URL', 'HTTP', 'API'], []]
 
-  tenv:
-    all: true
 
   varcheck:
     exported-fields: false # this appears to improperly detect exported variables as unused when they are used from a package with the same name
@@ -69,9 +67,7 @@ linters:
     - bodyclose # checks whether HTTP response body is closed successfully
     - durationcheck # check for two durations multiplied together
     - errorlint # errorlint is a linter for that can be used to find code that will cause problems with the error wrapping scheme introduced in Go 1.13.
-    - execinquery # execinquery is a linter about query string checker in Query function which reads your Go src files and warning it finds
     - exhaustive # check exhaustiveness of enum switch statements
-    - exportloopref # checks for pointers to enclosing loop variables
     - forbidigo # Forbids identifiers
     - gochecknoinits # Checks that no init functions are present in Go code
     - goconst # Finds repeated strings that could be replaced by a constant
@@ -89,11 +85,11 @@ linters:
     - nosprintfhostport # Checks for misuse of Sprintf to construct a host with port in a URL.
     - predeclared # find code that shadows one of Go's predeclared identifiers
     - revive # Fast, configurable, extensible, flexible, and beautiful linter for Go. Drop-in replacement of golint.
-    - tenv # tenv is analyzer that detects using os.Setenv instead of t.Setenv since Go1.17
     - tparallel # tparallel detects inappropriate usage of t.Parallel() method in your Go test codes
     - unconvert # Remove unnecessary type conversions
     - usestdlibvars # detect the possibility to use variables/constants from the Go standard library
     - whitespace # Tool for detection of leading and trailing whitespace
+    - usetesting # Replaced tenv (detecting os.Setenv vs t.Setenv)
 
 issues:
   max-same-issues: 50
